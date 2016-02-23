@@ -38,17 +38,21 @@ class Tax
     end
   end
 
-  def get_band_id(annual_income)
-    @thresholds.each_with_index { |th, i| return i if annual_income <= th }
+  def get_band_id(income)
+    @thresholds.each_with_index { |th, i| return i if income <= th }
     raise WageError.new("income is out of range")
   end
 
-  def get_band(annual_income)
-    return @bands[get_band_id annual_income]
+  def get_band(income)
+    return @bands[get_band_id income]
   end
 
-  def get_rate(annual_income)
-    return @rates[get_band_id annual_income]
+  def get_threshold_lo(income)
+    return @thresholds[[0, get_band_id(income) - 1].max]
+  end
+
+  def get_rate(income)
+    return @rates[get_band_id income]
   end
 
 end
@@ -64,7 +68,6 @@ income_tax_data = [
 national_insurance_data = [
   [:lower_earnings_limit, 486, 0.0],
   [:primary_threshold, 672, 0.12],
-  [:secondary_threshold, 676, 0.12],
   [:upper_accrual_point, 3337, 0.12],
   [:upper_earnings_limit, 3532, 0.12],
   [:above_upper_earnings_limit, MAX_INCOME, 0.02]
@@ -80,6 +83,7 @@ if __FILE__ == $0
   ARGV.each do |arg|
     case arg
       when '-h', '--help'           then ARGS[:help] = true
+      when '-v', '--verbose'        then ARGS[:verbose] = true
       else
         if next_arg
           ARGS[next_arg] = arg
@@ -105,19 +109,28 @@ if __FILE__ == $0
   married_couples_allowance = 0
   blind_persons_allowance = 2290
 
-  allowance = 0
-
   income = ARGS[:annual_income].delete(",").to_i
-  taxable_income = [income - personal_allowance, 0].max
-  taxable_monthly_income = taxable_income / 12.0
+  monthly_income = income / 12.0
 
+  allowance = personal_allowance - \
+    [income - personal_allowance_limit, 0].max * personal_allowance_penalty
+  taxable_income = [income - allowance, 0].max
   income_tax = taxable_income * income_tax_table.get_rate(taxable_income)
-  ni_tax = taxable_income * \
-    national_insurance_tax_table.get_rate(taxable_monthly_income)
+
+  ni_taxable_monthly_income = monthly_income - \
+    national_insurance_tax_table.get_threshold_lo(monthly_income)
+  ni_tax = ni_taxable_monthly_income * 12.0 * \
+    national_insurance_tax_table.get_rate(monthly_income)
 
   net_tax = income_tax + ni_tax
   net_income = income - net_tax
   net_monthly_income = net_income / 12.0
 
+  puts "annual income: #{income}" if ARGS[:verbose]
+  puts "monthly income #{monthly_income}" if ARGS[:verbose]
+  puts "taxable income: #{taxable_income}" if ARGS[:verbose]
+  puts "NI taxable income #{ni_taxable_monthly_income}" if ARGS[:verbose]
+  puts "income tax: #{income_tax}" if ARGS[:verbose]
+  puts "National Insurance tax: #{ni_tax}" if ARGS[:verbose]
   puts "net annual income: #{net_income}"
 end
